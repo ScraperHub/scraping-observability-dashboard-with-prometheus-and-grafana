@@ -1,0 +1,111 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: crawlbase
+    folder: Crawlbase
+    interval: 1m
+    rules:
+      - uid: cb-domain-success-low
+        title: Crawlbase domain success rate below 90%
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: page
+        annotations:
+          summary: "Success rate for {{ $labels.domain }} is {{ humanizePercentage $values.B.Value }}"
+          description: >-
+            cb_status 200 share has been under 90% for 10 minutes. Open the cb_status
+            breakdown panel: 5xx/6xx codes are the crawl layer, 704/705/706 mean the
+            target site said no (check original_status).
+          runbook_url: https://crawlbase.com/docs/status-codes/
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              # Ignore domains with almost no traffic (under ~1 request per 2 minutes).
+              expr: crawlbase:domain_success_ratio:rate5m and on (domain) crawlbase:domain_requests:rate5m > 0.008
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [0.9] }
+
+      - uid: cb-normal-token-blocked
+        title: Normal token blocked, switch to JS token
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.domain }}: {{ humanizePercentage $values.B.Value }} of Normal-token requests blocked"
+          description: >-
+            Normal-token requests return cb_status 503/207/576/705 (525 kept for older
+            responses). Route this domain through CRAWLBASE_JS_TOKEN. This is a config
+            fix, not an outage, so it opens a ticket instead of paging.
+          runbook_url: https://crawlbase.com/docs/crawling-api/
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: crawlbase:normal_token_blocked_ratio:rate5m
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0.2] }
+
+      - uid: cb-credits-low
+        title: Crawlbase credits run out in under 3 days
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: page
+        annotations:
+          summary: "Credits projected to hit zero in {{ printf \"%.1f\" $values.B.Value }} days"
+          description: >-
+            Remaining credits divided by the last hour of billable requests. Top up,
+            or find the domain driving the burn in the billable panel.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: crawlbase:credits_days_to_zero
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [3] }

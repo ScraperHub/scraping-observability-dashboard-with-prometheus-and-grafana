@@ -1,0 +1,44 @@
+name: cbwatch-step07
+
+# Step 06 plus recording rules and a provisioned dashboard.
+services:
+  scraper:
+    build: ../../final
+    command: ["python", "-m", "cbwatch.demo"]
+    env_file: ../../.env
+    environment:
+      METRICS_PORT: "8000"
+      DEMO_MAX_REQUESTS: "8"
+      CRAWLBASE_MONTHLY_BUDGET: "1000"
+    ports: ["8000:8000"]
+
+  reconciler:
+    build: ../../final
+    command: ["python", "-m", "cbwatch.reconciler"]
+    env_file: ../../.env
+    environment:
+      METRICS_PORT: "8001"
+      ACCOUNT_STATE_FILE: /app/state/account_state.json
+      CRAWLBASE_MONTHLY_BUDGET: "1000"
+    volumes:
+      - account-state:/app/state
+    ports: ["8001:8001"]
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+
+volumes:
+  account-state:
+    name: cbwatch-account-state

@@ -1,0 +1,72 @@
+# promtool test rules prometheus/tests/crawlbase.rules.test.yml
+rule_files:
+  - ../rules/crawlbase.rules.yml
+
+evaluation_interval: 30s
+
+tests:
+  - interval: 30s
+    input_series:
+      # walmart.com: 10 attempts, 9 successes and 1 Normal-token block every 30s => 90% success.
+      - series: 'crawlbase_attempts_total{domain="walmart.com",token_type="normal"}'
+        values: '0+10x240'
+      - series: 'crawlbase_requests_total{domain="walmart.com",cb_status="200",original_status="200",http_status="200",token_type="normal",billable="true"}'
+        values: '0+9x240'
+      - series: 'crawlbase_requests_total{domain="walmart.com",cb_status="576",original_status="403",http_status="520",token_type="normal",billable="false"}'
+        values: '0+1x240'
+      - series: 'crawlbase_account_remaining_credits{source="budget"}'
+        values: '86400x240'
+      - series: 'crawlbase_account_domain_success_rate{domain="walmart"}'
+        values: '0.95x240'
+      - series: 'crawlbase_account_total_success'
+        values: '95x240'
+      - series: 'crawlbase_account_total_failed'
+        values: '5x240'
+
+      # A timeout: counted in attempts only, so it lowers success for example.com.
+      - series: 'crawlbase_attempts_total{domain="example.com",token_type="normal"}'
+        values: '0+2x240'
+      - series: 'crawlbase_requests_total{domain="example.com",cb_status="200",original_status="200",http_status="200",token_type="normal",billable="true"}'
+        values: '0+1x240'
+
+    promql_expr_test:
+      - expr: round(crawlbase:domain_success_ratio:rate5m, 0.001)
+        eval_time: 90m
+        exp_samples:
+          - labels: '{domain="walmart.com"}'
+            value: 0.9
+          - labels: '{domain="example.com"}'
+            value: 0.5
+
+      - expr: round(crawlbase:normal_token_blocked_ratio:rate5m, 0.001)
+        eval_time: 90m
+        exp_samples:
+          - labels: '{domain="walmart.com"}'
+            value: 0.1
+
+      # 10 billable per 30s = 1/3 per second = 28,800/day. 86,400 credits => 3 days.
+      - expr: crawlbase:credits_days_to_zero
+        eval_time: 90m
+        exp_samples:
+          - labels: 'crawlbase:credits_days_to_zero'
+            value: 3
+
+      - expr: crawlbase:site_success_ratio:rate1h
+        eval_time: 90m
+        exp_samples:
+          - labels: 'crawlbase:site_success_ratio:rate1h{domain="walmart.com",site="walmart"}'
+            value: 0.9
+          - labels: 'crawlbase:site_success_ratio:rate1h{domain="example.com",site="example"}'
+            value: 0.5
+
+      - expr: crawlbase:account_site_success_ratio
+        eval_time: 90m
+        exp_samples:
+          - labels: 'crawlbase:account_site_success_ratio{domain="walmart",site="walmart"}'
+            value: 0.95
+
+      - expr: crawlbase:account_success_ratio
+        eval_time: 90m
+        exp_samples:
+          - labels: 'crawlbase:account_success_ratio'
+            value: 0.95

@@ -1,0 +1,72 @@
+groups:
+  - name: crawlbase-recording
+    interval: 30s
+    rules:
+      # Success = the crawl worked (cb_status 200). The denominator is
+      # crawlbase_attempts_total, which also counts timeouts and is created at 0.
+      - record: crawlbase:domain_success_ratio:rate5m
+        expr: |
+          clamp_max(
+            sum by (domain) (rate(crawlbase_requests_total{cb_status="200"}[5m]))
+            /
+            sum by (domain) (rate(crawlbase_attempts_total[5m])),
+            1
+          )
+
+      - record: crawlbase:domain_requests:rate5m
+        expr: sum by (domain) (rate(crawlbase_attempts_total[5m]))
+
+      - record: crawlbase:success_ratio:rate1h
+        expr: |
+          clamp_max(
+            sum(rate(crawlbase_requests_total{cb_status="200"}[1h]))
+            /
+            sum(rate(crawlbase_attempts_total[1h])),
+            1
+          )
+
+      # Normal-token requests that came back with a "use the JS token" code.
+      # 503 and 207 are documented. 576 and 705 (blocked, original 403) were seen live.
+      - record: crawlbase:normal_token_blocked:rate5m
+        expr: |
+          sum by (domain) (rate(crawlbase_requests_total{token_type="normal", cb_status=~"503|207|525|576|705"}[5m]))
+
+      - record: crawlbase:normal_token_blocked_ratio:rate5m
+        expr: |
+          crawlbase:normal_token_blocked:rate5m
+          /
+          sum by (domain) (rate(crawlbase_attempts_total{token_type="normal"}[5m]))
+
+      - record: crawlbase:billable_requests:rate1h
+        expr: sum(rate(crawlbase_requests_total{billable="true"}[1h]))
+
+      # Days until credits hit zero at the current billable rate.
+      # Assumes 1 credit per billable request (standard tier).
+      - record: crawlbase:credits_days_to_zero
+        expr: |
+          max(crawlbase_account_remaining_credits)
+          /
+          (crawlbase:billable_requests:rate1h * 86400)
+
+      # Account API reports bare site names ("walmart"), local labels are
+      # hostnames ("walmart.com"). Derive a matching "site" label for the join.
+      - record: crawlbase:site_success_ratio:rate1h
+        expr: |
+          label_replace(
+            clamp_max(
+              sum by (domain) (rate(crawlbase_requests_total{cb_status="200"}[1h]))
+              /
+              sum by (domain) (rate(crawlbase_attempts_total[1h])),
+              1
+            ),
+            "site", "$1", "domain", "(?:.*\\.)?([^.]+)\\.[^.]+"
+          )
+
+      - record: crawlbase:account_site_success_ratio
+        expr: label_replace(crawlbase_account_domain_success_rate, "site", "$1", "domain", "(.*)")
+
+      - record: crawlbase:account_success_ratio
+        expr: |
+          crawlbase_account_total_success
+          /
+          (crawlbase_account_total_success + crawlbase_account_total_failed)

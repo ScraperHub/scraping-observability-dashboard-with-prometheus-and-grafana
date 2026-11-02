@@ -1,0 +1,13 @@
+[project]
+name = "cbwatch"
+version = "1.0.0"
+description = "Prometheus metrics for the Crawlbase Crawling API and Account API"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "live: calls the real Crawlbase APIs (needs tokens in .env, costs a few credits)",
+]
+addopts = "-m 'not live'"
